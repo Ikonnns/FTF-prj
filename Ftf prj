@@ -1,0 +1,1520 @@
+-- Solstice | Flee the Facility
+
+local repo = "https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/"
+
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Camera = workspace.CurrentCamera
+
+-- Randomized folder prefix for safety
+local RandomFolderPrefix = "Solstice_" .. tostring(math.random(100000, 999999))
+
+local Window = Library:CreateWindow({
+    Title = "Solstice | Flee the Facility",
+    Center = true,
+    AutoShow = true,
+})
+
+local Tabs = {
+    Player = Window:AddTab("Player"),
+    Visuals = Window:AddTab("Visuals"),
+    Map = Window:AddTab("Map"),
+    Universal = Window:AddTab("Universal"),
+    ["UI Settings"] = Window:AddTab("UI Settings"),
+}
+
+-------------------------------------------------
+-- ORIGINAL LIGHTING BACKUP & SKYBOX SYSTEM
+-------------------------------------------------
+local OriginalLighting = {
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    FogStart = Lighting.FogStart,
+    FogColor = Lighting.FogColor,
+    GlobalShadows = Lighting.GlobalShadows,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    Ambient = Lighting.Ambient,
+}
+
+local OriginalSky = nil
+local initialSky = Lighting:FindFirstChildOfClass("Sky")
+if initialSky then
+    OriginalSky = initialSky:Clone()
+end
+
+local SkyPresets = {
+    ["Neptune Blue"] = {
+        SkyboxBk = "rbxassetid://159454299",
+        SkyboxDn = "rbxassetid://159454296",
+        SkyboxFt = "rbxassetid://159454293",
+        SkyboxLf = "rbxassetid://159454298",
+        SkyboxRt = "rbxassetid://159454300",
+        SkyboxUp = "rbxassetid://159454288"
+    },
+    ["Purple Vaporwave"] = {
+        SkyboxBk = "rbxassetid://508457640",
+        SkyboxDn = "rbxassetid://508457752",
+        SkyboxFt = "rbxassetid://508457520",
+        SkyboxLf = "rbxassetid://508457416",
+        SkyboxRt = "rbxassetid://508457224",
+        SkyboxUp = "rbxassetid://508457883"
+    },
+    ["Deep Space"] = {
+        SkyboxBk = "rbxassetid://12064107",
+        SkyboxDn = "rbxassetid://12064152",
+        SkyboxFt = "rbxassetid://12064121",
+        SkyboxLf = "rbxassetid://12064131",
+        SkyboxRt = "rbxassetid://12064115",
+        SkyboxUp = "rbxassetid://12064143"
+    },
+    ["Blood Red Moon"] = {
+        SkyboxBk = "rbxassetid://252765790",
+        SkyboxDn = "rbxassetid://252763321",
+        SkyboxFt = "rbxassetid://252761439",
+        SkyboxLf = "rbxassetid://252760977",
+        SkyboxRt = "rbxassetid://252760826",
+        SkyboxUp = "rbxassetid://252762638"
+    }
+}
+
+local function ApplySkyboxPreset(presetName)
+    for _, child in pairs(Lighting:GetChildren()) do
+        if child:IsA("Sky") then
+            child:Destroy()
+        end
+    end
+
+    if presetName == "Default" or not SkyPresets[presetName] then
+        if OriginalSky then
+            OriginalSky:Clone().Parent = Lighting
+        end
+        return
+    end
+
+    local newSky = Instance.new("Sky")
+    newSky.Name = "SolsticeSky"
+    local data = SkyPresets[presetName]
+    newSky.SkyboxBk = data.SkyboxBk
+    newSky.SkyboxDn = data.SkyboxDn
+    newSky.SkyboxFt = data.SkyboxFt
+    newSky.SkyboxLf = data.SkyboxLf
+    newSky.SkyboxRt = data.SkyboxRt
+    newSky.SkyboxUp = data.SkyboxUp
+    newSky.Parent = Lighting
+end
+
+-------------------------------------------------
+-- TAB GROUPS
+-------------------------------------------------
+local PlayerNoclipGroup    = Tabs.Player:AddLeftGroupbox("Noclip")
+local PlayerMovementGroup  = Tabs.Player:AddLeftGroupbox("Movement")
+local PlayerUtilitiesGroup = Tabs.Player:AddRightGroupbox("Utilities")
+local PlayerVisualsGroup   = Tabs.Player:AddRightGroupbox("Visuals")
+
+local ESPBoxGroup     = Tabs.Visuals:AddLeftGroupbox("ESP Box")
+local ESPChamsGroup   = Tabs.Visuals:AddLeftGroupbox("Chams")
+local ESPAuraGroup    = Tabs.Visuals:AddRightGroupbox("ESP Aura")
+local ESPTracersGroup = Tabs.Visuals:AddRightGroupbox("Tracers")
+local ESPArrowsGroup  = Tabs.Visuals:AddRightGroupbox("Offscreen Arrows")
+
+local MapComputersGroup  = Tabs.Map:AddLeftGroupbox("Computers")
+local MapFreezePodsGroup = Tabs.Map:AddLeftGroupbox("Freeze Pods")
+local MapExitDoorsGroup  = Tabs.Map:AddLeftGroupbox("Exit Doors")
+local MapVentsGroup      = Tabs.Map:AddRightGroupbox("Vents")
+local MapDoorsGroup      = Tabs.Map:AddRightGroupbox("Doors")
+
+local LightingGroup    = Tabs.Universal:AddLeftGroupbox("Lighting & Atmosphere")
+local CameraGroup      = Tabs.Universal:AddLeftGroupbox("Camera & FOV")
+local PerformanceGroup = Tabs.Universal:AddRightGroupbox("Performance")
+local UtilitiesGroup   = Tabs.Universal:AddRightGroupbox("Utilities")
+local SpectateGroup    = Tabs.Universal:AddRightGroupbox("Spectate")
+
+-------------------------------------------------
+-- LOBBY BOUNDS CHECK UTILITY
+-------------------------------------------------
+local LobbyMin = Vector3.new(-33.8, -41.3, -517.4)
+local LobbyMax = Vector3.new(415.1, 117.2, -221.1)
+
+-- Normalize min/max properly regardless of coordinate order
+local MinBounds = Vector3.new(math.min(LobbyMin.X, LobbyMax.X), math.min(LobbyMin.Y, LobbyMax.Y), math.min(LobbyMin.Z, LobbyMax.Z))
+local MaxBounds = Vector3.new(math.max(LobbyMin.X, LobbyMax.X), math.max(LobbyMin.Y, LobbyMax.Y), math.max(LobbyMin.Z, LobbyMax.Z))
+
+local function IsInLobby(character)
+    if not character then return false end
+    local hrp = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+    if not hrp then return false end
+    local pos = hrp.Position
+    if pos.X >= MinBounds.X and pos.X <= MaxBounds.X and
+       pos.Y >= MinBounds.Y and pos.Y <= MaxBounds.Y and
+       pos.Z >= MinBounds.Z and pos.Z <= MaxBounds.Z then
+        return true
+    end
+    return false
+end
+
+-------------------------------------------------
+-- BEAST DETECTION UTILITY
+-------------------------------------------------
+local function IsPlayerBeast(player)
+    if not player then return false end
+    local success, res = pcall(function()
+        local tempStats = player:FindFirstChild("TempPlayerStatsModule")
+        if tempStats then
+            local isBeast = tempStats:FindFirstChild("IsBeast")
+            if isBeast and isBeast.Value == true then return true end
+        end
+        local char = player.Character
+        if char and (char:FindFirstChild("Hammer") or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Hammer"))) then
+            return true
+        end
+        return false
+    end)
+    return success and res
+end
+
+local function GetServerPlayers()
+    local list = { "None" }
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then table.insert(list, p.Name) end
+    end
+    return list
+end
+
+-------------------------------------------------
+-- ESP BOX SYSTEM
+-------------------------------------------------
+local BoxDrawings = {}
+
+local function ClearPlayerDrawing(player)
+    if BoxDrawings[player] then
+        for _, obj in pairs(BoxDrawings[player]) do
+            if obj and obj.Remove then obj:Remove() end
+        end
+        BoxDrawings[player] = nil
+    end
+end
+
+local function CreateBoxDrawing(player)
+    if BoxDrawings[player] then return end
+    local boxOutline = Drawing.new("Square")
+    boxOutline.Visible = false; boxOutline.Color = Color3.fromRGB(0, 0, 0); boxOutline.Thickness = 3; boxOutline.Transparency = 1; boxOutline.Filled = false
+    local boxMain = Drawing.new("Square")
+    boxMain.Visible = false; boxMain.Color = Color3.fromRGB(255, 255, 255); boxMain.Thickness = 1; boxMain.Transparency = 1; boxMain.Filled = false
+    BoxDrawings[player] = { Outline = boxOutline, Main = boxMain }
+end
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local masterEnabled = Toggles.ESPBoxMaster and Toggles.ESPBoxMaster.Value
+        local simpleEnabled = Toggles.ESPSimpleBox and Toggles.ESPSimpleBox.Value
+        local enhancedEnabled = Toggles.ESPEnhancedBox and Toggles.ESPEnhancedBox.Value
+        local survivorColor = Options.SurvivorESPColor and Options.SurvivorESPColor.Value or Color3.fromRGB(0, 255, 0)
+        local beastColor = Options.BeastESPColor and Options.BeastESPColor.Value or Color3.fromRGB(255, 0, 0)
+
+        if not masterEnabled or not (simpleEnabled or enhancedEnabled) then
+            for _, data in pairs(BoxDrawings) do
+                if data.Outline then data.Outline.Visible = false end
+                if data.Main then data.Main.Visible = false end
+            end
+            return
+        end
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and not IsInLobby(player.Character) then
+                local char = player.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+
+                if hrp and hum and hum.Health > 0 then
+                    if not BoxDrawings[player] then CreateBoxDrawing(player) end
+                    local drawData = BoxDrawings[player]
+                    local position, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                    if onScreen then
+                        local currentColor = IsPlayerBeast(player) and beastColor or survivorColor
+                        local cframe, size = char:GetBoundingBox()
+                        local topPos = Camera:WorldToViewportPoint((cframe * CFrame.new(0, size.Y / 2 + 0.5, 0)).Position)
+                        local bottomPos = Camera:WorldToViewportPoint((cframe * CFrame.new(0, -size.Y / 2 - 0.5, 0)).Position)
+                        
+                        local boxHeight = math.abs(topPos.Y - bottomPos.Y)
+                        local boxWidth = boxHeight * 0.65
+                        local posX = position.X - boxWidth / 2
+                        local posY = topPos.Y
+
+                        if simpleEnabled then
+                            drawData.Outline.Visible = false
+                            drawData.Main.Size = Vector2.new(boxWidth, boxHeight)
+                            drawData.Main.Position = Vector2.new(posX, posY)
+                            drawData.Main.Color = currentColor
+                            drawData.Main.Visible = true
+                        elseif enhancedEnabled then
+                            drawData.Outline.Size = Vector2.new(boxWidth, boxHeight)
+                            drawData.Outline.Position = Vector2.new(posX, posY)
+                            drawData.Outline.Visible = true
+                            drawData.Main.Size = Vector2.new(boxWidth, boxHeight)
+                            drawData.Main.Position = Vector2.new(posX, posY)
+                            drawData.Main.Color = currentColor
+                            drawData.Main.Visible = true
+                        end
+                    else
+                        drawData.Outline.Visible = false
+                        drawData.Main.Visible = false
+                    end
+                else
+                    if BoxDrawings[player] then
+                        BoxDrawings[player].Outline.Visible = false
+                        BoxDrawings[player].Main.Visible = false
+                    end
+                end
+            else
+                if BoxDrawings[player] then
+                    BoxDrawings[player].Outline.Visible = false
+                    BoxDrawings[player].Main.Visible = false
+                end
+            end
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player) ClearPlayerDrawing(player) end)
+
+-------------------------------------------------
+-- OFFSCREEN ARROWS SYSTEM (Fixed rotation & lobby check)
+-------------------------------------------------
+local ArrowDrawings = {}
+
+local function ClearArrowDrawing(player)
+    if ArrowDrawings[player] then
+        if ArrowDrawings[player].Remove then ArrowDrawings[player]:Remove() end
+        ArrowDrawings[player] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local arrowsMaster = Toggles.ArrowsMaster and Toggles.ArrowsMaster.Value
+        local survivorColor = Options.SurvivorArrowColor and Options.SurvivorArrowColor.Value or Color3.fromRGB(0, 255, 0)
+        local beastColor = Options.BeastArrowColor and Options.BeastArrowColor.Value or Color3.fromRGB(255, 0, 0)
+        local circleRadius = Options.ArrowRadiusSlider and Options.ArrowRadiusSlider.Value or 100
+
+        if not arrowsMaster then
+            for _, arrow in pairs(ArrowDrawings) do
+                if arrow then arrow.Visible = false end
+            end
+            return
+        end
+
+        local viewportSize = Camera.ViewportSize
+        local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and not IsInLobby(player.Character) then
+                local char = player.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+
+                if hrp and hum and hum.Health > 0 then
+                    if not ArrowDrawings[player] then
+                        local triangle = Drawing.new("Triangle")
+                        triangle.Visible = false
+                        triangle.Filled = true
+                        triangle.Thickness = 1
+                        ArrowDrawings[player] = triangle
+                    end
+
+                    local arrow = ArrowDrawings[player]
+                    local _, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+
+                    if not onScreen then
+                        local camCFrame = Camera.CFrame
+                        local playerPos = hrp.Position
+                        local relPos = camCFrame:PointToObjectSpace(playerPos)
+                        local angle = math.atan2(relPos.X, -relPos.Z)
+                        
+                        local arrowX = screenCenter.X + math.sin(angle) * circleRadius
+                        local arrowY = screenCenter.Y + math.cos(angle) * circleRadius
+                        local arrowPos = Vector2.new(arrowX, arrowY)
+
+                        local direction = (screenCenter - arrowPos).Unit
+                        local perp = Vector2.new(-direction.Y, direction.X)
+                        local size = 12
+
+                        -- Fixed triangle rotation to point outward correctly
+                        arrow.PointA = arrowPos + (direction * size)
+                        arrow.PointB = arrowPos - (direction * (size / 2)) + (perp * (size / 2))
+                        arrow.PointC = arrowPos - (direction * (size / 2)) - (perp * (size / 2))
+                        arrow.Color = IsPlayerBeast(player) and beastColor or survivorColor
+                        arrow.Visible = true
+                    else
+                        arrow.Visible = false
+                    end
+                else
+                    ClearArrowDrawing(player)
+                end
+            else
+                ClearArrowDrawing(player)
+            end
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- ESP AURA SYSTEM
+-------------------------------------------------
+local AuraHighlights = {}
+local function ClearPlayerAura(player)
+    if AuraHighlights[player] then
+        if AuraHighlights[player].Parent then AuraHighlights[player]:Destroy() end
+        AuraHighlights[player] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local masterEnabled = Toggles.ESPAuraMaster and Toggles.ESPAuraMaster.Value
+        local survivorFill = Options.SurvivorAuraFillColor and Options.SurvivorAuraFillColor.Value or Color3.fromRGB(0, 255, 0)
+        local beastFill = Options.BeastAuraFillColor and Options.BeastAuraFillColor.Value or Color3.fromRGB(255, 0, 0)
+
+        if not masterEnabled then
+            for _, highlight in pairs(AuraHighlights) do
+                if highlight then highlight.Enabled = false end
+            end
+            return
+        end
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and not IsInLobby(player.Character) then
+                local char = player.Character
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    if not AuraHighlights[player] or AuraHighlights[player].Parent ~= char then
+                        ClearPlayerAura(player)
+                        local hl = Instance.new("Highlight")
+                        hl.Name = "SolsticeAura"
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.Parent = char
+                        AuraHighlights[player] = hl
+                    end
+                    local hl = AuraHighlights[player]
+                    hl.FillColor = IsPlayerBeast(player) and beastFill or survivorFill
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 1
+                    hl.Enabled = true
+                else
+                    ClearPlayerAura(player)
+                end
+            else
+                ClearPlayerAura(player)
+            end
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- PLAYER CHAMS SYSTEM (ADORNMENTS)
+-------------------------------------------------
+local ChamsFolder = Instance.new("Folder")
+ChamsFolder.Name = "SolsticeChams"
+ChamsFolder.Parent = game:GetService("CoreGui")
+local ChamsObjects = {}
+
+local function ClearPlayerChams(player)
+    if ChamsObjects[player] then
+        for _, objGroup in pairs(ChamsObjects[player]) do
+            if type(objGroup) == "table" then
+                if objGroup.Inner and objGroup.Inner.Parent then objGroup.Inner:Destroy() end
+                if objGroup.Outline and objGroup.Outline.Parent then objGroup.Outline:Destroy() end
+            end
+        end
+        ChamsObjects[player] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local chamsEnabled = Toggles.ChamsMaster and Toggles.ChamsMaster.Value
+        local survivorColor = Options.SurvivorChamsColor and Options.SurvivorChamsColor.Value or Color3.fromRGB(0, 255, 0)
+        local beastColor = Options.BeastChamsColor and Options.BeastChamsColor.Value or Color3.fromRGB(255, 0, 0)
+
+        if not chamsEnabled then
+            for player, _ in pairs(ChamsObjects) do ClearPlayerChams(player) end
+            return
+        end
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and not IsInLobby(player.Character) then
+                local char = player.Character
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    local isBeast = IsPlayerBeast(player)
+                    local targetColor = isBeast and beastColor or survivorColor
+
+                    if not ChamsObjects[player] then ChamsObjects[player] = {} end
+
+                    for _, part in pairs(char:GetChildren()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            if not ChamsObjects[player][part] then
+                                local outerAdornment = Instance.new("BoxHandleAdornment")
+                                outerAdornment.AlwaysOnTop = true; outerAdornment.ZIndex = 9; outerAdornment.Transparency = 0.2; outerAdornment.Adornee = part; outerAdornment.Parent = ChamsFolder
+                                local innerAdornment = Instance.new("BoxHandleAdornment")
+                                innerAdornment.AlwaysOnTop = true; innerAdornment.ZIndex = 10; innerAdornment.Transparency = 0.3; innerAdornment.Adornee = part; innerAdornment.Parent = ChamsFolder
+                                ChamsObjects[player][part] = { Inner = innerAdornment, Outline = outerAdornment }
+                            end
+                            local group = ChamsObjects[player][part]
+                            group.Inner.Size = part.Size; group.Inner.Color3 = targetColor; group.Inner.Visible = true
+                            group.Outline.Size = part.Size + Vector3.new(0.18, 0.18, 0.18); group.Outline.Color3 = Color3.fromRGB(0, 0, 0); group.Outline.Visible = true
+                        end
+                    end
+                else
+                    ClearPlayerChams(player)
+                end
+            else
+                ClearPlayerChams(player)
+            end
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- STRICT VERIFIED MAP ESP ENGINE & CACHING
+-------------------------------------------------
+local MapCache = {
+    ComputerTable = {},
+    FreezePod = {},
+    ExitDoor = {},
+    VentBlock = {},
+    SingleDoor = {},
+}
+
+local MapMemory = {}
+local MapRenderObjects = {}
+local MapFolder = Instance.new("Folder")
+MapFolder.Name = "SolsticeMapESP"
+MapFolder.Parent = game:GetService("CoreGui")
+
+local MapNamesMap = {
+    ComputerTable = "Computer",
+    FreezePod = "Freeze Pod",
+    ExitDoor = "Exit Door",
+    VentBlock = "Vent",
+    SingleDoor = "Door"
+}
+
+local function ClearMapCacheAndObjects()
+    for _, list in pairs(MapCache) do table.clear(list) end
+    for _, data in pairs(MapRenderObjects) do
+        if data.Highlight and data.Highlight.Parent then data.Highlight:Destroy() end
+        if data.TextDrawing and data.TextDrawing.Remove then data.TextDrawing:Remove() end
+    end
+    table.clear(MapRenderObjects)
+end
+
+local function ScanAndVerifyMap()
+    ClearMapCacheAndObjects()
+    
+    local currentMapVal = ReplicatedStorage:FindFirstChild("CurrentMap")
+    local mapName = currentMapVal and tostring(currentMapVal.Value) or ""
+    if mapName == "" or mapName == "nil" then return end
+
+    if MapMemory[mapName] then
+        MapCache = MapMemory[mapName]
+        return
+    end
+
+    local activeMapFolder = workspace:FindFirstChild(mapName)
+    if not activeMapFolder then
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Model") and obj.Name:lower() == mapName:lower() then
+                activeMapFolder = obj
+                break
+            end
+        end
+    end
+
+    if not activeMapFolder then return end
+
+    for _, descendant in ipairs(activeMapFolder:GetDescendants()) do
+        if descendant:IsA("Model") then
+            local nameLower = descendant.Name:lower()
+            if not nameLower:find("prefab") then
+                if descendant:FindFirstChild("ExitDoorTrigger") or descendant:FindFirstChild("ExitArea") then
+                    if not table.find(MapCache.ExitDoor, descendant) then table.insert(MapCache.ExitDoor, descendant) end
+                elseif descendant:FindFirstChild("MainComputerScript") or descendant:FindFirstChild("ComputerTrigger1") or descendant:FindFirstChild("PCBarrier") or nameLower:find("computer") or nameLower:find("pc") then
+                    if not table.find(MapCache.ComputerTable, descendant) then table.insert(MapCache.ComputerTable, descendant) end
+                elseif descendant:FindFirstChild("PodTrigger") or descendant:FindFirstChild("PodRoof") or nameLower:find("freezepod") or nameLower:find("pod") then
+                    if not table.find(MapCache.FreezePod, descendant) then table.insert(MapCache.FreezePod, descendant) end
+                elseif nameLower:find("vent") then
+                    if not table.find(MapCache.VentBlock, descendant) then table.insert(MapCache.VentBlock, descendant) end
+                elseif (descendant:FindFirstChild("OpeningSide") or descendant:FindFirstChild("DoorTrigger") or nameLower:find("door")) and not descendant:FindFirstChild("ExitDoorTrigger") and not descendant:FindFirstChild("ExitArea") then
+                    if not table.find(MapCache.SingleDoor, descendant) then table.insert(MapCache.SingleDoor, descendant) end
+                end
+            end
+        end
+    end
+
+    MapMemory[mapName] = MapCache
+end
+
+local currentMapVal = ReplicatedStorage:FindFirstChild("CurrentMap")
+if currentMapVal then
+    currentMapVal.Changed:Connect(function(newVal)
+        if newVal and newVal ~= "" then
+            task.wait(1.5)
+            ScanAndVerifyMap()
+        end
+    end)
+end
+
+pcall(function()
+    local statusLabel = LocalPlayer.PlayerGui.ScreenGui.RoundBar.RoundInfo.StatusLabel
+    if statusLabel then
+        statusLabel.Changed:Connect(function(text)
+            if text:find("COMPUTERS LEFT") or text:find("HEAD START") or text:find("GAME STARTING") then
+                ScanAndVerifyMap()
+            end
+        end)
+    end
+end)
+
+-------------------------------------------------
+-- NO PC FAIL BYPASS
+-------------------------------------------------
+local oldnc
+oldnc = hookmetamethod(game, "__namecall", newcclosure(function(name, ...)
+    local Args = { ... }
+    local method = getnamecallmethod()
+    if Toggles.NoPcFail and Toggles.NoPcFail.Value and not checkcaller() and (method == "FireServer" or method == "InvokeServer") and tostring(name) == "RemoteEvent" and Args[1] == "SetPlayerMinigameResult" then
+        Args[2] = true
+    end
+    return oldnc(name, unpack(Args))
+end))
+
+-------------------------------------------------
+-- MAP ESP RENDER LOOP (FIXED COMPUTER & POD ESP)
+-------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local categories = {
+            ComputerTable = {
+                Master = Toggles.ComputerMaster and Toggles.ComputerMaster.Value,
+                Chams = Toggles.ComputerChams and Toggles.ComputerChams.Value,
+                ChamsColor = Options.ComputerChamsColor and Options.ComputerChamsColor.Value or Color3.fromRGB(0, 255, 255),
+                Name = Toggles.ComputerName and Toggles.ComputerName.Value,
+                NameColor = Options.ComputerNameColor and Options.ComputerNameColor.Value or Color3.fromRGB(0, 255, 255),
+                ProgressToggle = Toggles.ComputerProgress and Toggles.ComputerProgress.Value,
+                IsComputer = true
+            },
+            FreezePod = {
+                Master = Toggles.FreezePodMaster and Toggles.FreezePodMaster.Value,
+                Chams = Toggles.FreezePodChams and Toggles.FreezePodChams.Value,
+                ChamsColor = Options.FreezePodChamsColor and Options.FreezePodChamsColor.Value or Color3.fromRGB(0, 150, 255),
+                Name = Toggles.FreezePodName and Toggles.FreezePodName.Value,
+                NameColor = Options.FreezePodNameColor and Options.FreezePodNameColor.Value or Color3.fromRGB(0, 150, 255),
+            },
+            ExitDoor = {
+                Master = Toggles.ExitDoorMaster and Toggles.ExitDoorMaster.Value,
+                Chams = Toggles.ExitDoorChams and Toggles.ExitDoorChams.Value,
+                ChamsColor = Options.ExitDoorChamsColor and Options.ExitDoorChamsColor.Value or Color3.fromRGB(255, 255, 0),
+                Name = Toggles.ExitDoorName and Toggles.ExitDoorName.Value,
+                NameColor = Options.ExitDoorNameColor and Options.ExitDoorNameColor.Value or Color3.fromRGB(255, 255, 0),
+            },
+            VentBlock = {
+                Master = Toggles.VentMaster and Toggles.VentMaster.Value,
+                Chams = Toggles.VentChams and Toggles.VentChams.Value,
+                ChamsColor = Options.VentChamsColor and Options.VentChamsColor.Value or Color3.fromRGB(200, 200, 200),
+                Name = Toggles.VentName and Toggles.VentName.Value,
+                NameColor = Options.VentNameColor and Options.VentNameColor.Value or Color3.fromRGB(200, 200, 200),
+            },
+            SingleDoor = {
+                Master = Toggles.DoorMaster and Toggles.DoorMaster.Value,
+                Chams = Toggles.DoorChams and Toggles.DoorChams.Value,
+                ChamsColor = Options.DoorChamsColor and Options.DoorChamsColor.Value or Color3.fromRGB(255, 170, 0),
+                Name = Toggles.DoorName and Toggles.DoorName.Value,
+                NameColor = Options.DoorNameColor and Options.DoorNameColor.Value or Color3.fromRGB(255, 170, 0),
+            }
+        }
+
+        for catName, catList in pairs(MapCache) do
+            local cfg = categories[catName]
+            if not cfg then continue end
+
+            for _, instance in pairs(catList) do
+                if not instance or not instance.Parent then continue end
+
+                if not MapRenderObjects[instance] then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "SolsticeMapHighlight"
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = instance
+                    hl.Enabled = false
+
+                    local txt = Drawing.new("Text")
+                    txt.Visible = false; txt.Center = true; txt.Outline = true; txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+
+                    MapRenderObjects[instance] = { Highlight = hl, TextDrawing = txt }
+                end
+
+                local data = MapRenderObjects[instance]
+
+                if not cfg.Master then
+                    if data.Highlight then data.Highlight.Enabled = false end
+                    if data.TextDrawing then data.TextDrawing.Visible = false end
+                    continue
+                end
+
+                local modelPivot = nil
+                pcall(function() modelPivot = instance:GetPivot().Position end)
+                if not modelPivot then
+                    local cf, _ = instance:GetBoundingBox()
+                    modelPivot = cf.Position
+                end
+
+                if cfg.Chams and data.Highlight then
+                    data.Highlight.FillColor = cfg.ChamsColor
+                    data.Highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+                    data.Highlight.FillTransparency = 0.5
+                    data.Highlight.OutlineTransparency = 0
+                    data.Highlight.Enabled = true
+                else
+                    if data.Highlight then data.Highlight.Enabled = false end
+                end
+
+                if cfg.Name and data.TextDrawing and modelPivot then
+                    local pos, onScreen = Camera:WorldToViewportPoint(modelPivot)
+                    if onScreen then
+                        local distance = math.floor((Camera.CFrame.Position - modelPivot).Magnitude)
+                        local labelText = MapNamesMap[catName] or catName
+
+                        if cfg.IsComputer and cfg.ProgressToggle then
+                            local progVal = instance:FindFirstChild("Progress") or instance:FindFirstChild("Hacked")
+                            if progVal and (progVal:IsA("NumberValue") or progVal:IsA("IntValue")) then
+                                labelText = string.format("Computer [%d%%]", progVal.Value)
+                            elseif progVal and progVal:IsA("BoolValue") then
+                                labelText = progVal.Value and "Computer [100%]" or "Computer [0%]"
+                            end
+                        end
+
+                        data.TextDrawing.Size = 15
+                        data.TextDrawing.Text = string.format("%s [%dm]", labelText, distance)
+                        data.TextDrawing.Position = Vector2.new(pos.X, pos.Y)
+                        data.TextDrawing.Color = cfg.NameColor
+                        data.TextDrawing.Visible = true
+                    else
+                        data.TextDrawing.Visible = false
+                    end
+                else
+                    if data.TextDrawing then data.TextDrawing.Visible = false end
+                end
+            end
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- AUTO RESCUE FEATURE (<15 studs)
+-------------------------------------------------
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        if Toggles.AutoRescue and Toggles.AutoRescue.Value then
+            local myChar = LocalPlayer.Character
+            if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+            local hrp = myChar.HumanoidRootPart
+
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and not IsInLobby(player.Character) then
+                    local tempStats = player:FindFirstChild("TempPlayerStatsModule")
+                    if tempStats then
+                        local captured = tempStats:FindFirstChild("Captured")
+                        if captured and captured.Value == true and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local targetHrp = player.Character.HumanoidRootPart
+                            local dist = (hrp.Position - targetHrp.Position).Magnitude
+                            if dist <= 15 then
+                                local vim = game:GetService("VirtualInputManager")
+                                vim:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                                task.wait(0.05)
+                                vim:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- FAKE LAG FEATURE (Fixed)
+-------------------------------------------------
+local FakeLagThread = nil
+
+local function StartFakeLag()
+    if FakeLagThread then return end
+    FakeLagThread = task.spawn(function()
+        while Toggles.FakeLagToggle and Toggles.FakeLagToggle.Value do
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local original = hrp.CFrame
+                hrp.CFrame = original * CFrame.new(0, 0, math.random(-8, 8) / 100)
+                task.wait(0.03)
+                hrp.CFrame = original
+            end
+            local intensity = Options.FakeLagSlider and Options.FakeLagSlider.Value or 0.18
+            task.wait(intensity)
+        end
+        FakeLagThread = nil
+    end)
+end
+
+-------------------------------------------------
+-- SPECTATE SYSTEM
+-------------------------------------------------
+local SpectatingTarget = nil
+RunService.RenderStepped:Connect(function()
+    pcall(function()
+        if Toggles.SpectateToggle and Toggles.SpectateToggle.Value and SpectatingTarget and SpectatingTarget.Character and SpectatingTarget.Character:FindFirstChild("HumanoidRootPart") then
+            Camera.CameraSubject = SpectatingTarget.Character:FindFirstChildOfClass("Humanoid")
+        else
+            Camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        end
+    end)
+end)
+
+-------------------------------------------------
+-- MAP TAB UI ELEMENTS
+-------------------------------------------------
+MapComputersGroup:AddToggle("ComputerMaster", { Text = "Enable Computers ESP", Default = false })
+MapComputersGroup:AddToggle("ComputerChams", { Text = "Chams", Default = false })
+MapComputersGroup:AddLabel("Chams Color"):AddColorPicker("ComputerChamsColor", { Default = Color3.fromRGB(0, 255, 255) })
+MapComputersGroup:AddToggle("ComputerName", { Text = "Name ESP", Default = false })
+MapComputersGroup:AddToggle("ComputerProgress", { Text = "Progress Text (% Completion)", Default = false })
+MapComputersGroup:AddLabel("Name Color"):AddColorPicker("ComputerNameColor", { Default = Color3.fromRGB(0, 255, 255) })
+
+MapFreezePodsGroup:AddToggle("FreezePodMaster", { Text = "Enable Freeze Pods ESP", Default = false })
+MapFreezePodsGroup:AddToggle("FreezePodChams", { Text = "Chams", Default = false })
+MapFreezePodsGroup:AddLabel("Chams Color"):AddColorPicker("FreezePodChamsColor", { Default = Color3.fromRGB(0, 150, 255) })
+MapFreezePodsGroup:AddToggle("FreezePodName", { Text = "Name ESP", Default = false })
+MapFreezePodsGroup:AddLabel("Name Color"):AddColorPicker("FreezePodNameColor", { Default = Color3.fromRGB(0, 150, 255) })
+
+MapExitDoorsGroup:AddToggle("ExitDoorMaster", { Text = "Enable Exit Doors ESP", Default = false })
+MapExitDoorsGroup:AddToggle("ExitDoorChams", { Text = "Chams", Default = false })
+MapExitDoorsGroup:AddLabel("Chams Color"):AddColorPicker("ExitDoorChamsColor", { Default = Color3.fromRGB(255, 255, 0) })
+MapExitDoorsGroup:AddToggle("ExitDoorName", { Text = "Name ESP", Default = false })
+MapExitDoorsGroup:AddLabel("Name Color"):AddColorPicker("ExitDoorNameColor", { Default = Color3.fromRGB(255, 255, 0) })
+
+MapVentsGroup:AddToggle("VentMaster", { Text = "Enable Vents ESP", Default = false })
+MapVentsGroup:AddToggle("VentChams", { Text = "Chams", Default = false })
+MapVentsGroup:AddLabel("Chams Color"):AddColorPicker("VentChamsColor", { Default = Color3.fromRGB(200, 200, 200) })
+MapVentsGroup:AddToggle("VentName", { Text = "Name ESP", Default = false })
+MapVentsGroup:AddLabel("Name Color"):AddColorPicker("VentNameColor", { Default = Color3.fromRGB(200, 200, 200) })
+
+MapDoorsGroup:AddToggle("DoorMaster", { Text = "Enable Doors ESP", Default = false })
+MapDoorsGroup:AddToggle("DoorChams", { Text = "Chams", Default = false })
+MapDoorsGroup:AddLabel("Chams Color"):AddColorPicker("DoorChamsColor", { Default = Color3.fromRGB(255, 170, 0) })
+MapDoorsGroup:AddToggle("DoorName", { Text = "Name ESP", Default = false })
+MapDoorsGroup:AddLabel("Name Color"):AddColorPicker("DoorNameColor", { Default = Color3.fromRGB(255, 170, 0) })
+
+-------------------------------------------------
+-- VISUALS TAB UI ELEMENTS
+-------------------------------------------------
+ESPBoxGroup:AddToggle("ESPBoxMaster", { Text = "Enable ESP Box", Default = false })
+ESPBoxGroup:AddToggle("ESPSimpleBox", { Text = "Simple Box", Default = false })
+ESPBoxGroup:AddToggle("ESPEnhancedBox", { Text = "Enhanced Box", Default = false })
+ESPBoxGroup:AddLabel("Survivor Color"):AddColorPicker("SurvivorESPColor", { Default = Color3.fromRGB(0, 255, 0) })
+ESPBoxGroup:AddLabel("Beast Color"):AddColorPicker("BeastESPColor", { Default = Color3.fromRGB(255, 0, 0) })
+
+ESPChamsGroup:AddToggle("ChamsMaster", { Text = "Enable Chams", Default = false })
+ESPChamsGroup:AddLabel("Survivor Color"):AddColorPicker("SurvivorChamsColor", { Default = Color3.fromRGB(0, 255, 0) })
+ESPChamsGroup:AddLabel("Beast Color"):AddColorPicker("BeastChamsColor", { Default = Color3.fromRGB(255, 0, 0) })
+
+ESPAuraGroup:AddToggle("ESPAuraMaster", { Text = "Enable ESP Aura", Default = false })
+ESPAuraGroup:AddLabel("Survivor Aura Color"):AddColorPicker("SurvivorAuraFillColor", { Default = Color3.fromRGB(0, 255, 0) })
+ESPAuraGroup:AddLabel("Beast Aura Color"):AddColorPicker("BeastAuraFillColor", { Default = Color3.fromRGB(255, 0, 0) })
+
+ESPArrowsGroup:AddToggle("ArrowsMaster", { Text = "Enable Offscreen Arrows", Default = false })
+ESPArrowsGroup:AddSlider("ArrowRadiusSlider", { Text = "Circle Radius", Default = 100, Min = 50, Max = 300, Rounding = 0 })
+ESPArrowsGroup:AddLabel("Survivor Color"):AddColorPicker("SurvivorArrowColor", { Default = Color3.fromRGB(0, 255, 0) })
+ESPArrowsGroup:AddLabel("Beast Color"):AddColorPicker("BeastArrowColor", { Default = Color3.fromRGB(255, 0, 0) })
+
+-------------------------------------------------
+-- NOCLIP SECTION
+-------------------------------------------------
+local NoclipConnection = nil
+local TargetPartNames = { ["Torso"] = true, ["UpperTorso"] = true, ["LowerTorso"] = true, ["Head"] = true }
+
+local function EnableNoclip()
+    if NoclipConnection then return end
+    NoclipConnection = RunService.Stepped:Connect(function()
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and TargetPartNames[part.Name] then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function DisableNoclip()
+    if NoclipConnection then
+        NoclipConnection:Disconnect()
+        NoclipConnection = nil
+    end
+    local character = LocalPlayer.Character
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and TargetPartNames[part.Name] then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+PlayerNoclipGroup:AddToggle("NoclipToggle", {
+    Text = "Noclip",
+    Default = false,
+    Callback = function(Value)
+        if Value then EnableNoclip() else DisableNoclip() end
+    end
+})
+
+PlayerNoclipGroup:AddToggle("NoclipKeybindToggle", { Text = "Enable Noclip Keybind", Default = false })
+PlayerNoclipGroup:AddLabel("Noclip Keybind"):AddKeyPicker("NoclipKeybind", {
+    Default = "N",
+    NoUI = false,
+    Text = "Noclip keybind",
+    Mode = "Toggle",
+    Callback = function(Value)
+        if Toggles.NoclipKeybindToggle and Toggles.NoclipKeybindToggle.Value and Toggles.NoclipToggle then
+            Toggles.NoclipToggle:SetValue(Value)
+        end
+    end
+})
+
+-------------------------------------------------
+-- MOVEMENT SECTION
+-------------------------------------------------
+local DefaultWalkSpeed = 16
+local DefaultJumpPower = 50
+
+PlayerMovementGroup:AddSlider("WalkSpeedSlider", {
+    Text = "Walk-Speed",
+    Default = 16,
+    Min = 1,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = Value end
+        end
+    end
+})
+
+PlayerMovementGroup:AddButton({
+    Text = "Reset Walk-Speed",
+    Func = function()
+        if Options.WalkSpeedSlider then Options.WalkSpeedSlider:SetValue(DefaultWalkSpeed) end
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = DefaultWalkSpeed end
+        end
+    end
+})
+
+PlayerMovementGroup:AddSlider("JumpPowerSlider", {
+    Text = "Jump-Power",
+    Default = 50,
+    Min = 1,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(Value)
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.UseJumpPower = true
+                hum.JumpPower = Value
+            end
+        end
+    end
+})
+
+PlayerMovementGroup:AddButton({
+    Text = "Reset Jump-Power",
+    Func = function()
+        if Options.JumpPowerSlider then Options.JumpPowerSlider:SetValue(DefaultJumpPower) end
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.UseJumpPower = true
+                hum.JumpPower = DefaultJumpPower
+            end
+        end
+    end
+})
+
+local NoSlowConnection = nil
+PlayerMovementGroup:AddToggle("NoSlow", {
+    Text = "No-Slow",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            NoSlowConnection = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum and Options.WalkSpeedSlider then
+                        hum.WalkSpeed = Options.WalkSpeedSlider.Value
+                    end
+                end
+            end)
+        else
+            if NoSlowConnection then
+                NoSlowConnection:Disconnect()
+                NoSlowConnection = nil
+            end
+        end
+    end
+})
+
+local Flying = false
+local FlyConnection = nil
+local BodyGyro, BodyVelocity = nil, nil
+
+local function StartFlying()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    BodyGyro = Instance.new("BodyGyro")
+    BodyGyro.P = 9e4
+    BodyGyro.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    BodyGyro.cframe = hrp.CFrame
+    BodyGyro.Parent = hrp
+
+    BodyVelocity = Instance.new("BodyVelocity")
+    BodyVelocity.velocity = Vector3.new(0, 0, 0)
+    BodyVelocity.maxForce = Vector3.new(9e9, 9e9, 9e9)
+    BodyVelocity.Parent = hrp
+
+    Flying = true
+
+    FlyConnection = RunService.RenderStepped:Connect(function()
+        if not Flying or not char or not hrp then return end
+        local camera = workspace.CurrentCamera
+        local speed = Options.FlySpeedSlider and Options.FlySpeedSlider.Value or 50
+
+        local moveDir = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
+        BodyGyro.cframe = camera.CFrame
+        BodyVelocity.velocity = moveDir * speed
+    end)
+end
+
+local function StopFlying()
+    Flying = false
+    if FlyConnection then
+        FlyConnection:Disconnect()
+        FlyConnection = nil
+    end
+    if BodyGyro then BodyGyro:Destroy() BodyGyro = nil end
+    if BodyVelocity then BodyVelocity:Destroy() BodyVelocity = nil end
+end
+
+PlayerMovementGroup:AddToggle("FlyToggle", {
+    Text = "Fly",
+    Default = false,
+    Callback = function(Value)
+        if Value then StartFlying() else StopFlying() end
+    end
+})
+
+PlayerMovementGroup:AddToggle("FlyKeybindToggle", { Text = "Enable Fly Keybind", Default = false })
+PlayerMovementGroup:AddLabel("Fly Keybind"):AddKeyPicker("FlyKeybind", {
+    Default = "F",
+    NoUI = false,
+    Text = "Fly keybind",
+    Mode = "Toggle",
+    Callback = function(Value)
+        if Toggles.FlyKeybindToggle and Toggles.FlyKeybindToggle.Value and Toggles.FlyToggle then
+            Toggles.FlyToggle:SetValue(Value)
+        end
+    end
+})
+
+PlayerMovementGroup:AddSlider("FlySpeedSlider", { Text = "Fly Speed", Default = 50, Min = 1, Max = 100, Rounding = 0 })
+
+local BhopConnection = nil
+PlayerMovementGroup:AddToggle("AutoBhop", {
+    Text = "Auto Bhop",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            BhopConnection = RunService.RenderStepped:Connect(function()
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    local char = LocalPlayer.Character
+                    if char then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum and (hum:GetState() == Enum.HumanoidStateType.Landed or hum.FloorMaterial ~= Enum.Material.Air) then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end
+                end
+            end)
+        else
+            if BhopConnection then
+                BhopConnection:Disconnect()
+                BhopConnection = nil
+            end
+        end
+    end
+})
+
+local JumpCount = 0
+local InfJumpConnection = nil
+
+PlayerMovementGroup:AddToggle("InfiniteJump", { Text = "Infinite Jump", Default = false })
+PlayerMovementGroup:AddToggle("InfJumpKeybindToggle", { Text = "Enable Inf Jump Keybind", Default = false })
+PlayerMovementGroup:AddLabel("Inf Jump Keybind"):AddKeyPicker("InfJumpKeybind", {
+    Default = "Space",
+    NoUI = false,
+    Text = "Inf Jump Keybind",
+    Mode = "Toggle",
+    Callback = function(Value)
+        if Toggles.InfJumpKeybindToggle and Toggles.InfJumpKeybindToggle.Value and Toggles.InfiniteJump then
+            Toggles.InfiniteJump:SetValue(Value)
+        end
+    end
+})
+
+PlayerMovementGroup:AddInput("InfJumpLimitInput", { Default = "100", Numeric = true, Text = "Inf Jump Limit" })
+
+InfJumpConnection = UserInputService.JumpRequest:Connect(function()
+    if Toggles.InfiniteJump and Toggles.InfiniteJump.Value then
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local limit = tonumber(Options.InfJumpLimitInput and Options.InfJumpLimitInput.Value) or 100
+                if hum:GetState() == Enum.HumanoidStateType.Landed or hum.FloorMaterial ~= Enum.Material.Air then
+                    JumpCount = 0
+                end
+                if JumpCount < limit then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    JumpCount = JumpCount + 1
+                end
+            end
+        end
+    end
+end)
+
+-------------------------------------------------
+-- UTILITIES SECTION (PLAYER TAB)
+-------------------------------------------------
+PlayerUtilitiesGroup:AddToggle("NoPcFail", { Text = "No PC Fail", Default = false })
+PlayerUtilitiesGroup:AddToggle("AutoRescue", { Text = "Auto Rescue (<15 studs)", Default = false })
+PlayerUtilitiesGroup:AddToggle("FakeLagToggle", { Text = "Fake Lag", Default = false })
+PlayerUtilitiesGroup:AddSlider("FakeLagSlider", { Text = "Lag Intensity", Default = 0.1, Min = 0.05, Max = 1, Rounding = 2 })
+
+local CrawlConnection = nil
+PlayerUtilitiesGroup:AddToggle("AllowBeastCrawl", {
+    Text = "Allow Beast Crawl",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            CrawlConnection = RunService.Stepped:Connect(function()
+                local tempStats = LocalPlayer:FindFirstChild("TempPlayerStatsModule")
+                if tempStats then
+                    local disableCrawl = tempStats:FindFirstChild("DisableCrawl")
+                    if disableCrawl then disableCrawl.Value = false end
+                end
+            end)
+        else
+            if CrawlConnection then
+                CrawlConnection:Disconnect()
+                CrawlConnection = nil
+            end
+        end
+    end
+})
+
+PlayerUtilitiesGroup:AddToggle("ClickTpKeybindToggle", { Text = "Enable Click TP Keybind", Default = false })
+PlayerUtilitiesGroup:AddLabel("Click TP Keybind"):AddKeyPicker("ClickTpKeybind", {
+    Default = "T",
+    NoUI = false,
+    Text = "Click TP keybind",
+    Mode = "Press",
+    Callback = function()
+        if Toggles.ClickTpKeybindToggle and Toggles.ClickTpKeybindToggle.Value then
+            local char = LocalPlayer.Character
+            if char and Mouse and Mouse.Hit then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.CFrame = CFrame.new(Mouse.Hit.Position + Vector3.new(0, 3, 0))
+                    Library:Notify("Click TP: Teleported!")
+                end
+            end
+        end
+    end
+})
+
+-------------------------------------------------
+-- ANTI-VOID CHECKPOINT SYSTEM
+-------------------------------------------------
+local AntiVoidConnection = nil
+local CheckpointThread = nil
+local LastSafeCFrame = nil
+local AntiVoidThreshold = -50
+
+local function StartCheckpointRecorder()
+    if CheckpointThread then return end
+    CheckpointThread = task.spawn(function()
+        while true do
+            local character = LocalPlayer.Character
+            if character then
+                local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+                if root and root.Position.Y > AntiVoidThreshold then
+                    LastSafeCFrame = root.CFrame
+                end
+            end
+            task.wait(10)
+        end
+    end)
+end
+
+local function StopCheckpointRecorder()
+    if CheckpointThread then
+        task.cancel(CheckpointThread)
+        CheckpointThread = nil
+    end
+    LastSafeCFrame = nil
+end
+
+PlayerUtilitiesGroup:AddToggle("AntiVoid", {
+    Text = "Anti-Void",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            StartCheckpointRecorder()
+            AntiVoidConnection = RunService.Heartbeat:Connect(function()
+                local character = LocalPlayer.Character
+                if character and character:FindFirstChild("HumanoidRootPart") then
+                    local hrp = character.HumanoidRootPart
+                    if hrp.Position.Y < AntiVoidThreshold then
+                        if LastSafeCFrame then
+                            hrp.CFrame = LastSafeCFrame + Vector3.new(0, 2, 0)
+                            Library:Notify("Anti-Void: Saved to recent checkpoint!")
+                        else
+                            hrp.CFrame = CFrame.new(0, 10, 0)
+                            Library:Notify("Anti-Void: Saved to default spawn!")
+                        end
+                    end
+                end
+            end)
+        else
+            StopCheckpointRecorder()
+            if AntiVoidConnection then
+                AntiVoidConnection:Disconnect()
+                AntiVoidConnection = nil
+            end
+        end
+    end
+})
+
+-------------------------------------------------
+-- VISUALS SECTION (PLAYER TAB - THIRD PERSON)
+-------------------------------------------------
+
+local ThirdPersonConnection = nil
+PlayerVisualsGroup:AddToggle("ThirdPersonUnlock", {
+    Text = "Third Person Unlock",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            ThirdPersonConnection = RunService.RenderStepped:Connect(function()
+                LocalPlayer.CameraMode = Enum.CameraMode.Classic
+                LocalPlayer.CameraMinZoomDistance = 0.5
+                LocalPlayer.CameraMaxZoomDistance = 500
+            end)
+        else
+            if ThirdPersonConnection then
+                ThirdPersonConnection:Disconnect()
+                ThirdPersonConnection = nil
+            end
+            LocalPlayer.CameraMaxZoomDistance = 128
+        end
+    end
+})
+
+-------------------------------------------------
+-- UNIVERSAL TAB UI ELEMENTS
+-------------------------------------------------
+LightingGroup:AddToggle("Fullbright", {
+    Text = "Fullbright",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+            Lighting.FogEnd = 100000
+            Lighting.GlobalShadows = false
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+            Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+        else
+            for property, value in pairs(OriginalLighting) do
+                pcall(function() Lighting[property] = value end)
+            end
+        end
+    end
+})
+
+LightingGroup:AddToggle("RemoveFog", {
+    Text = "Remove Fog",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            Lighting.FogEnd = 100000
+            Lighting.FogStart = 0
+        else
+            Lighting.FogEnd = OriginalLighting.FogEnd
+            Lighting.FogStart = OriginalLighting.FogStart
+        end
+    end
+})
+
+LightingGroup:AddDropdown("SkyboxPreset", {
+    Values = { "Default", "Neptune Blue", "Purple Vaporwave", "Deep Space", "Blood Red Moon" },
+    Default = 1,
+    Multi = false,
+    Text = "Skybox Preset",
+    Callback = function(Value)
+        ApplySkyboxPreset(Value)
+    end
+})
+
+LightingGroup:AddLabel("Ambient Color"):AddColorPicker("LightingAmbientColor", {
+    Default = Lighting.Ambient,
+    Callback = function(Value) Lighting.Ambient = Value end
+})
+
+CameraGroup:AddSlider("FOVSliderUniversal", {
+    Text = "Field of View",
+    Default = 70,
+    Min = 1,
+    Max = 120,
+    Rounding = 0,
+    Callback = function(Value)
+        local cam = workspace.CurrentCamera
+        if cam then cam.FieldOfView = Value end
+    end
+})
+
+CameraGroup:AddToggle("SeeThroughWalls", {
+    Text = "See-Through Walls (Invisicam)",
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+        else
+            LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+        end
+    end
+})
+
+CameraGroup:AddSlider("MaxZoomSlider", { Text = "Camera Max Zoom", Default = 128, Min = 10, Max = 2000, Rounding = 0, Callback = function(Value) LocalPlayer.CameraMaxZoomDistance = Value end })
+CameraGroup:AddSlider("MinZoomSlider", { Text = "Camera Min Zoom", Default = 0.5, Min = 0, Max = 10, Rounding = 1, Callback = function(Value) LocalPlayer.CameraMinZoomDistance = Value end })
+
+PerformanceGroup:AddDropdown("FPSCapDropdown", {
+    Values = { "30", "60", "120", "144", "240", "Uncapped" },
+    Default = 2,
+    Multi = false,
+    Text = "FPS Limit",
+    Callback = function(Value)
+        if setfpscap then
+            if Value == "Uncapped" then setfpscap(999) else setfpscap(tonumber(Value) or 60) end
+        end
+    end
+})
+
+PerformanceGroup:AddButton({
+    Text = "FPS Booster (Low Graphics)",
+    Func = function()
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") then v.Material = Enum.Material.SmoothPlastic
+            elseif v:IsA("Decal") or v:IsA("Texture") then v:Destroy() end
+        end
+        Lighting.GlobalShadows = false
+        Library:Notify("FPS Booster Applied!")
+    end
+})
+
+PerformanceGroup:AddToggle("Disable3DRendering", {
+    Text = "Disable 3D Rendering (AFK)",
+    Default = false,
+    Callback = function(Value)
+        RunService:Set3dRenderingEnabled(not Value)
+    end
+})
+
+UtilitiesGroup:AddButton({
+    Text = "Safe Respawn",
+    Func = function()
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char:BreakJoints()
+        end
+    end
+})
+
+UtilitiesGroup:AddButton({
+    Text = "Respawn",
+    Func = function()
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.Health = 0 end
+            char:ClearAllChildren()
+        end
+    end
+})
+
+UtilitiesGroup:AddButton({ Text = "Re-Join", Func = function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end })
+UtilitiesGroup:AddButton({
+    Text = "Server Hop",
+    Func = function()
+        local success, result = pcall(function()
+            local servers = {}
+            local req = game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")
+            local data = HttpService:JSONDecode(req)
+            for _, server in pairs(data.data) do
+                if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    table.insert(servers, server.id)
+                end
+            end
+            if #servers > 0 then
+                local randomServer = servers[math.random(1, #servers)]
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer, LocalPlayer)
+            else
+                Library:Notify("No other servers found")
+            end
+        end)
+        if not success then TeleportService:Teleport(game.PlaceId, LocalPlayer) end
+    end
+})
+
+UtilitiesGroup:AddButton({ Text = "Load Infinite Yield", Func = function() loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))() Library:Notify("Infinite Yield Loaded") end })
+
+SpectateGroup:AddToggle("SpectateToggle", { Text = "Enable Spectate", Default = false })
+SpectateGroup:AddDropdown("SpectateDropdown", {
+    Values = GetServerPlayers(),
+    Default = 1,
+    Multi = false,
+    Text = "Spectate Player",
+    Callback = function(Value)
+        if Value == "None" or not Value then
+            SpectatingTarget = nil
+        else
+            SpectatingTarget = Players:FindFirstChild(Value)
+        end
+    end
+})
+
+Players.PlayerAdded:Connect(function() Options.SpectateDropdown:SetValues(GetServerPlayers()) end)
+Players.PlayerRemoving:Connect(function() Options.SpectateDropdown:SetValues(GetServerPlayers()) end)
+
+-------------------------------------------------
+-- UI SETTINGS
+-------------------------------------------------
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
+
+MenuGroup:AddButton("Unload", function()
+    if Toggles.Fullbright and Toggles.Fullbright.Value then
+        for property, value in pairs(OriginalLighting) do
+            pcall(function() Lighting[property] = value end)
+        end
+    end
+
+    RunService:Set3dRenderingEnabled(true)
+    LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+    ApplySkyboxPreset("Default")
+
+    DisableNoclip()
+    StopFlying()
+    StopCheckpointRecorder()
+    ClearAllDrawings()
+    ClearAllAuras()
+    ClearAllChams()
+    ClearAllTracers()
+    ClearMapCacheAndObjects()
+
+    if ChamsFolder then ChamsFolder:Destroy() end
+    if MapFolder then MapFolder:Destroy() end
+
+    if CrawlConnection then CrawlConnection:Disconnect() CrawlConnection = nil end
+    if ThirdPersonConnection then ThirdPersonConnection:Disconnect() ThirdPersonConnection = nil end
+    if AntiVoidConnection then AntiVoidConnection:Disconnect() AntiVoidConnection = nil end
+    if NoSlowConnection then NoSlowConnection:Disconnect() NoSlowConnection = nil end
+    if InfJumpConnection then InfJumpConnection:Disconnect() InfJumpConnection = nil end
+    if BhopConnection then BhopConnection:Disconnect() BhopConnection = nil end
+
+    Library:Unload()
+end)
+
+MenuGroup:AddLabel("Menu Keybind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = false, Text = "Menu keybind" })
+Library.ToggleKeybind = Options.MenuKeybind
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ 
+    "MenuKeybind", "NoclipKeybind", "InfJumpKeybind", "FlyKeybind", "ClickTpKeybind", 
+    "SurvivorESPColor", "BeastESPColor", "SurvivorAuraFillColor", "BeastAuraFillColor", 
+    "SurvivorAuraOutlineColor", "BeastAuraOutlineColor", "SurvivorChamsColor", "BeastChamsColor",
+    "SurvivorChamsOutlineColor", "BeastChamsOutlineColor", "SurvivorTracerColor", "BeastTracerColor",
+    "ComputerChamsColor", "ComputerAuraFill", "ComputerAuraOutline", "ComputerNameColor",
+    "FreezePodChamsColor", "FreezePodAuraFill", "FreezePodAuraOutline", "FreezePodNameColor",
+    "ExitDoorChamsColor", "ExitDoorAuraFill", "ExitDoorAuraOutline", "ExitDoorNameColor",
+    "VentChamsColor", "VentAuraFill", "VentAuraOutline", "VentNameColor",
+    "DoorChamsColor", "DoorAuraFill", "DoorAuraOutline", "DoorNameColor",
+    "LightingAmbientColor"
+})
+
+ThemeManager:SetFolder(RandomFolderPrefix)
+SaveManager:SetFolder(RandomFolderPrefix .. "/FleeTheFacility")
+
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+
+Library:SetWatermark("Get Solstice: discord.gg/wNyQHdMrPN")
+Library:SetWatermarkVisibility(true)
+
+print("Solstice loaded securely with random prefix: " .. RandomFolderPrefix)
